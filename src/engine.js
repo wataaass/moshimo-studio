@@ -54,3 +54,30 @@ export function createCaptions(root, list) {
   update.els = els;
   return update;
 }
+
+/**
+ * 3D の位置に貼りつく小さなラベル。list: [{ html, pos: Vector3, from, to }]
+ * 返り値の関数に時刻とカメラを渡すと、画面上の位置に置き直す
+ */
+export function createTags(root, list) {
+  const els = list.map((c) => {
+    const el = document.createElement('div');
+    el.className = 'tag';
+    el.innerHTML = c.html;
+    root.appendChild(el);
+    return el;
+  });
+  const v = new THREE.Vector3();
+  return (t, camera) => {
+    camera.updateMatrixWorld();
+    camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+    list.forEach((c, i) => {
+      const el = els[i];
+      v.copy(c.pos).project(camera);
+      const on = t >= c.from && t < c.to && v.z < 1 && Math.abs(v.x) < 1.2 && Math.abs(v.y) < 1.2;
+      el.style.opacity = on ? Math.min(1, prog(t, c.from, c.from + 0.2) * 2) : 0;
+      el.style.left = ((v.x + 1) / 2) * W + 'px';
+      el.style.top = ((1 - v.y) / 2) * H + 'px';
+    });
+  };
+}

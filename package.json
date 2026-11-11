@@ -8,7 +8,7 @@
     "render": "node render.cjs",
     "preview": "node render.cjs jihanki --scale 0.5 --stills 1,5.9,8.1,13.4,15.2,18.4,25.5,30",
     "test": "node --test",
-    "check": "node --check render.cjs && node --check src/util.js && node --check scenes/jihanki.facts.js && node --test && node render.cjs jihanki --scale 0.25 --stills 0,13,18,30"
+    "check": "node --check render.cjs && node --check src/util.js && node --check scenes/jihanki.facts.js && node --check src/synth.js && node --test && node render.cjs jihanki --scale 0.25 --stills 0,13,18,30"
   },
   "dependencies": {
     "@fontsource/m-plus-rounded-1c": "^5.3.0",

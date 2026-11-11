@@ -27,7 +27,12 @@ async function addAudio() {
   const { left, right } = buildAudio();
   const wav = out.replace(/\.mp4$/, '.wav'), tmp = out.replace(/\.mp4$/, '.tmp.mp4');
   fs.writeFileSync(wav, wavBytes(left, right));
-  const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', out, '-i', wav, '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tmp], { stdio: 'inherit' });
+  // YouTube の基準（-14 LUFS、ピーク -1dB）に合わせて全体の音量を決める
+  const probe = spawnSync('ffmpeg', ['-hide_banner', '-i', wav, '-af', 'loudnorm=I=-14:TP=-1:print_format=json', '-f', 'null', '-'], { encoding: 'utf8' });
+  const m = /"input_i"\s*:\s*"(-?[\d.]+)"[\s\S]*?"input_tp"\s*:\s*"(-?[\d.]+)"/.exec(probe.stderr || '');
+  const gain = m ? Math.min(-14 - parseFloat(m[1]), -1 - parseFloat(m[2])) : 0;
+  if (m) console.log(`音量: ${m[1]} LUFS / ピーク ${m[2]} dB → ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB して ${(parseFloat(m[1]) + gain).toFixed(1)} LUFS`);
+  const r = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', out, '-i', wav, '-map', '0:v', '-map', '1:a', '-af', `volume=${gain.toFixed(2)}dB`, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', tmp], { stdio: 'inherit' });
   if (r.status !== 0) throw new Error('音を付けられませんでした');
   fs.renameSync(tmp, out);
   console.log(`音を付けました: ${out}`);

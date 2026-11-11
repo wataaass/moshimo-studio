@@ -5,17 +5,15 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { gradientTexture, createCaptions, createTags } from '../src/engine.js';
 import { clamp, lerp, prog, easeInOut, easeOut, rng, pyramidLayout } from '../src/util.js';
 import { FACTS, derive } from './jihanki.facts.js';
+import { DURATION, T, DROP_FALL, dropStart, FALL as FALLCFG, fallPlan } from './jihanki.timing.js';
 
-export const duration = 32;
+export const duration = DURATION;
 
 const D = derive();
 const MW = 1.0, MH = 1.83, MD = 0.75; // 近景で使う自販機モデルの大きさ（m）
 const LAYERS = 9;
-// 場面の切り替わり
-const T_COL = 6.2;   // 縦に積む
-const T_FALL = 16.3; // 倒れる
-const T_CUBE = 20.5; // まとめて積む
-const T_END = 28;    // まとめ
+// 場面の切り替わり（時刻は jihanki.timing.js で音と共有する）
+const T_COL = T.COL, T_FALL = T.FALL, T_CUBE = T.CUBE, T_END = T.END;
 const CUTS = [T_COL, T_FALL, T_CUBE];
 
 const BODIES = [
@@ -142,7 +140,7 @@ export function build({ scene, camera, overlay, flash }) {
     ...slots[si],
     yaw: (r() - 0.5) * 0.1,
     variant: n === 0 ? 0 : Math.floor(r() * BODIES.length),
-    t0: n === 0 ? -1 : 2.5 + 3.3 * Math.pow(n / (N - 1), 0.8),
+    t0: n === 0 ? -1 : dropStart(n, N),
   }));
   const meshes = machineMats.map((mats, v) => {
     const m = new THREE.InstancedMesh(machineGeo, mats, items.filter((it) => it.variant === v).length);
@@ -150,7 +148,7 @@ export function build({ scene, camera, overlay, flash }) {
     near.add(m);
     return m;
   });
-  const FALL = 0.5, DROP = 24;
+  const FALL = DROP_FALL, DROP = 24;
   function placeMachines(t) {
     const count = BODIES.map(() => 0);
     let landed = 0;
@@ -268,7 +266,7 @@ export function build({ scene, camera, overlay, flash }) {
   // カメラの高さ：目印ごとに止まりながら上がる
   const OFF = 6; // カメラの高さ + OFF を「いまの高さ」として表示する
   const stop = (h) => yOf(h) - OFF;
-  const KEYS = [[T_COL, 4], [7.8, stop(FACTS.tower)], [8.3, stop(FACTS.tower)], [9.0, stop(FACTS.skytree)], [9.7, stop(FACTS.skytree)], [10.7, stop(FACTS.fuji)], [11.4, stop(FACTS.fuji)], [12.7, stop(FACTS.iss)], [13.8, stop(FACTS.iss)], [14.8, Y_TOP - OFF]];
+  const KEYS = [[T_COL, 4], [T.TOWER, stop(FACTS.tower)], [T.TOWER_GO, stop(FACTS.tower)], [T.SKYTREE, stop(FACTS.skytree)], [T.SKYTREE_GO, stop(FACTS.skytree)], [T.FUJI, stop(FACTS.fuji)], [T.FUJI_GO, stop(FACTS.fuji)], [T.ISS, stop(FACTS.iss)], [T.ISS_GO, stop(FACTS.iss)], [T.TOP, Y_TOP - OFF]];
   const camY = (t) => {
     for (let i = 0; i < KEYS.length - 1; i++) if (t <= KEYS[i + 1][0]) return lerp(KEYS[i][1], KEYS[i + 1][1], easeInOut(prog(t, KEYS[i][0], KEYS[i + 1][0])));
     return KEYS.at(-1)[1];
@@ -279,18 +277,14 @@ export function build({ scene, camera, overlay, flash }) {
   fall.visible = false;
   scene.add(fall);
   fall.add(disc(900, grassMat), disc(16, padMat, 0.02));
-  const FN = 24, FH = FN * MH, T_BREAK = T_FALL + 1.4, G = 60, W_OMEGA = Math.PI * 2 * 1.3;
-  const fr = rng(31);
+  const FN = FALLCFG.count, FH = FN * MH, T_BREAK = T.BREAK, G = FALLCFG.gravity, W_OMEGA = Math.PI * 2 * FALLCFG.wobbleHz;
   const wobble = (y0, t) => 3.5 * Math.pow(prog(t, T_FALL, T_BREAK), 2) * Math.pow(y0 / FH, 2) * Math.sin(W_OMEGA * (t - T_FALL));
   const DIR = Math.sign(Math.sin(W_OMEGA * (T_BREAK - T_FALL))) || 1;
-  const boxes = Array.from({ length: FN }, (_, i) => {
-    const y0 = (i + 0.5) * MH;
-    const mesh = new THREE.Mesh(machineGeo, machineMats[Math.floor(fr() * BODIES.length)]);
+  const boxes = fallPlan().map((b) => {
+    const mesh = new THREE.Mesh(machineGeo, machineMats[b.variant]);
     mesh.castShadow = true; mesh.receiveShadow = true;
     fall.add(mesh);
-    const vx = DIR * (0.2 * y0 + fr() * 3), vy = fr() * 8, vz = (fr() - 0.5) * 9;
-    const tl = (vy + Math.sqrt(vy * vy + 2 * G * (y0 - MW / 2))) / G; // 着地までの時間
-    return { mesh, y0, vx, vy, vz, tl, turns: 1 + 2 * Math.floor(fr() * 3), yaw: (fr() - 0.5) * 1.2 };
+    return { ...b, mesh, vx: DIR * b.vx, tl: b.land };
   });
   function placeFall(t) {
     for (const b of boxes) {
@@ -349,27 +343,27 @@ export function build({ scene, camera, overlay, flash }) {
   // ========== 字幕とラベル ==========
   const END = duration - 0.05;
   const caps = createCaptions(overlay, [
-    { from: 0.15, to: 2.5, top: 196, size: 78, html: 'もしも<b>日本中の自販機</b>を<br>ぜんぶ積み上げたら？' },
-    { from: 2.7, to: T_COL, top: 180, size: 150, html: '<b>1</b>台' },
-    { from: 3.3, to: T_COL, top: 1330, size: 84, html: '飲み物の自販機は<br>全国に<b>約195万台</b>' },
-    { from: 3.3, to: T_COL, top: 1570, size: 36, cls: 'note', html: '※2025年末の速報値（飲料総研調べ）' },
+    { from: 0.15, to: T.DROP, top: 196, size: 78, html: 'もしも<b>日本中の自販機</b>を<br>ぜんぶ積み上げたら？' },
+    { from: T.DROP + 0.1, to: T_COL, top: 180, size: 150, html: '<b>1</b>台' },
+    { from: 3, to: T_COL, top: 1330, size: 84, html: '飲み物の自販機は<br>全国に<b>約195万台</b>' },
+    { from: 3, to: T_COL, top: 1570, size: 36, cls: 'note', html: '※2025年末の速報値（飲料総研調べ）' },
 
     { from: T_COL + 0.2, to: T_FALL, top: 190, size: 112, html: '高さ <b>0m</b>' },
-    { from: T_COL + 0.2, to: 7.9, top: 1340, size: 92, html: 'まっすぐ<b>縦</b>に積むと…' },
-    { from: 12.8, to: 14.2, top: 1340, size: 96, html: '<b>宇宙ステーション</b>も<br>通りこして…' },
-    { from: 14.9, to: T_FALL, top: 1340, size: 96, html: '宇宙ステーションの<br><b>約9倍</b>の高さ！' },
-    { from: 14.9, to: T_FALL, top: 1590, size: 36, cls: 'note', html: '※1台の高さ1.83m × 195万台で計算' },
+    { from: T_COL + 0.2, to: T.TOWER - 0.2, top: 1340, size: 92, html: 'まっすぐ<b>縦</b>に積むと…' },
+    { from: T.ISS + 0.1, to: 14.2, top: 1340, size: 96, html: '<b>宇宙ステーション</b>も<br>通りこして…' },
+    { from: T.TOP, to: T_FALL, top: 1340, size: 96, html: '宇宙ステーションの<br><b>約9倍</b>の高さ！' },
+    { from: T.TOP, to: T_FALL, top: 1590, size: 36, cls: 'note', html: '※1台の高さ1.83m × 195万台で計算' },
 
     { from: T_FALL + 0.2, to: T_BREAK + 0.1, top: 200, size: 130, html: 'でも…' },
-    { from: T_BREAK + 0.2, to: T_CUBE, top: 200, size: 108, html: 'もちろん<b>倒れます</b>' },
+    { from: T.LINE, to: T_CUBE, top: 200, size: 108, html: 'もちろん<b>倒れます</b>' },
 
-    { from: T_CUBE + 0.2, to: 23.3, top: 196, size: 92, html: 'じゃあ<b>ぎっしり</b><br>まとめて積むと？' },
-    { from: 23.4, to: T_END, top: 196, size: 96, html: '一辺<b>約138m</b>の<br>サイコロ形に！' },
-    { from: 24.8, to: T_END, top: 1340, size: 88, html: '東京タワーの<br><b>半分にも届かない</b>' },
+    { from: T_CUBE + 0.2, to: T.REVEAL - 0.1, top: 196, size: 92, html: 'じゃあ<b>ぎっしり</b><br>まとめて積むと？' },
+    { from: T.REVEAL, to: T_END, top: 196, size: 96, html: '一辺<b>約138m</b>の<br>サイコロ形に！' },
+    { from: T.HALF, to: T_END, top: 1340, size: 88, html: '東京タワーの<br><b>半分にも届かない</b>' },
 
     { from: T_END + 0.1, to: END, top: 196, size: 84, html: '縦なら<b>宇宙</b>まで届くのに<br>まとめると<b>意外と小さい</b>' },
-    { from: T_END + 0.9, to: END, top: 1340, size: 76, html: '体積は<br><b>東京ドーム約2杯分</b>' },
-    { from: T_END + 0.9, to: END, top: 1560, size: 32, cls: 'note', html: '※飲料自販機195万台、1台を<br>幅1.03×奥行0.72×高さ1.83mとして計算' },
+    { from: T.DOME, to: END, top: 1340, size: 76, html: '体積は<br><b>東京ドーム約2杯分</b>' },
+    { from: T.DOME, to: END, top: 1560, size: 32, cls: 'note', html: '※飲料自販機195万台、1台を<br>幅1.03×奥行0.72×高さ1.83mとして計算' },
   ]);
   const counter = caps.els[1].querySelector('b');
   const meter = caps.els[4].querySelector('b');
@@ -377,12 +371,12 @@ export function build({ scene, camera, overlay, flash }) {
   const tagUnder = (h, drop) => V(IX, yOf(h) - drop, 0);
   const issTagPos = V(0, 0, 0);
   const tags = createTags(overlay, [
-    { from: 7.3, to: 9.4, pos: tagUnder(FACTS.tower, 10.2), html: '東京タワー <b>333m</b>' },
-    { from: 8.7, to: 10.2, pos: V(IX, yOf(FACTS.skytree) + 2.2), html: 'スカイツリー <b>634m</b>' },
-    { from: 10.2, to: 12.0, pos: tagUnder(FACTS.fuji, 8.6), html: '富士山 <b>3,776m</b>' },
-    { from: 12.2, to: 14.4, pos: issTagPos, html: '国際宇宙ステーション<br><b>約400km</b>' },
-    { from: 23.4, to: T_END, pos: V(CUBEX, CUBE / 2), html: '自販機<br><b>約138m</b>' },
-    { from: 23.4, to: T_END, pos: V(TOWERX, 205), html: '東京タワー<br><b>333m</b>' },
+    { from: T.TOWER - 0.5, to: T.SKYTREE - 0.1, pos: tagUnder(FACTS.tower, 10.2), html: '東京タワー <b>333m</b>' },
+    { from: T.SKYTREE - 0.2, to: T.SKYTREE_GO + 0.5, pos: V(IX, yOf(FACTS.skytree) + 2.2), html: 'スカイツリー <b>634m</b>' },
+    { from: T.FUJI - 0.3, to: T.FUJI_GO + 0.6, pos: tagUnder(FACTS.fuji, 8.6), html: '富士山 <b>3,776m</b>' },
+    { from: T.ISS - 0.3, to: T.ISS_GO + 0.7, pos: issTagPos, html: '国際宇宙ステーション<br><b>約400km</b>' },
+    { from: T.REVEAL, to: T_END, pos: V(CUBEX, CUBE / 2), html: '自販機<br><b>約138m</b>' },
+    { from: T.REVEAL, to: T_END, pos: V(TOWERX, 205), html: '東京タワー<br><b>333m</b>' },
   ]);
   const fmtCount = (n) => (n >= 10000 ? Math.round(n / 10000) + '万' : n.toLocaleString('en-US'));
   const fmtHeight = (h) => {
@@ -400,7 +394,7 @@ export function build({ scene, camera, overlay, flash }) {
 
     if (phase === 0) {
       const landed = placeMachines(t);
-      const p = prog(t, 2.5, 6.0);
+      const p = prog(t, T.DROP, 5.8);
       counter.textContent = fmtCount(p >= 1 ? FACTS.count : Math.max(1, Math.round(Math.exp(Math.log(FACTS.count) * Math.pow(p, 0.8))), landed));
       const k = easeInOut(prog(t, 2.2, 5.4));
       const a = prog(t, 0, 2.6);
@@ -410,15 +404,15 @@ export function build({ scene, camera, overlay, flash }) {
       setSun(18, 34, 26, 22, 120, 0, 6);
     } else if (phase === 1) {
       const y = camY(t);
-      const k = easeInOut(prog(t, 14.8, T_FALL - 0.1)); // 最後に引いて地球を見せる
+      const k = easeInOut(prog(t, T.TOP, T_FALL - 0.1)); // 最後に引いて地球を見せる
       eye.set(lerp(0.6, 44, k), lerp(y + 1, 286, k), lerp(34, 165, k));
       look.set(lerp(0.6, 4, k), lerp(y + 3, 176, k), 0);
       skyAt(y);
       stars.material.opacity = prog(y, 165, 215);
       halo.material.opacity = 0.1 + 0.25 * prog(y, 150, 220);
-      iss.position.set(IX + 0.4 + (t - 13.2) * 0.5, Y_ISS + 0.5, -1);
+      iss.position.set(IX + 0.4 + (t - 13) * 0.5, Y_ISS + 0.5, -1);
       issTagPos.set(iss.position.x - 0.6, Y_ISS - 3.6, 0);
-      meter.textContent = fmtHeight(t >= 14.8 ? D.stack : Math.min(D.stack, Math.pow(10, (y + OFF) / 40)));
+      meter.textContent = fmtHeight(t >= T.TOP ? D.stack : Math.min(D.stack, Math.pow(10, (y + OFF) / 40)));
       setSun(60, y + 80, 90, 60, 400, 0, y);
     } else if (phase === 2) {
       placeFall(t);
@@ -429,10 +423,10 @@ export function build({ scene, camera, overlay, flash }) {
       fog.near = 300; fog.far = 1500;
       setSun(40, 80, 60, 55, 300, 0, 20);
     } else {
-      const g = easeOut(prog(t, T_CUBE + 0.4, 23.2)); // 下から積み上がる
+      const g = easeOut(prog(t, T.GROW, T.REVEAL)); // 下から積み上がる
       cube.scale.y = Math.max(0.001, g);
       cube.position.y = (CUBE * g) / 2;
-      const k = easeInOut(prog(t, T_CUBE, 24.4));
+      const k = easeInOut(prog(t, T_CUBE, 22.8));
       const d = (t - T_END) * (t > T_END ? 1 : 0);
       eye.set(lerp(-95, 5, k) + d * 5, lerp(60, 136, k), lerp(430, 1200, k) + d * 8);
       look.set(lerp(-95, 5, k), lerp(70, 136, k), 0);

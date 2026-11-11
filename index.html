@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>moshimo-studio</title>
+<link rel="stylesheet" href="/node_modules/@fontsource/m-plus-rounded-1c/900.css">
+<style>
+  html, body { margin: 0; background: #000; }
+  #stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; }
+  canvas { display: block; width: 1080px; height: 1920px; }
+  #overlay { position: absolute; inset: 0; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+  .cap {
+    position: absolute; left: 50px; right: 50px; text-align: center;
+    font-family: 'M PLUS Rounded 1c', sans-serif; font-weight: 900; line-height: 1.22;
+    color: #fff; -webkit-text-stroke: 20px #1b2a4a; paint-order: stroke fill;
+    opacity: 0; transform-origin: 50% 50%; white-space: nowrap;
+  }
+  .cap b { color: #ffd93b; font-weight: 900; }
+  .cap.note { -webkit-text-stroke: 10px #1b2a4a; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "/node_modules/three/build/three.module.js",
+  "three/addons/": "/node_modules/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas><div id="overlay"></div><div id="flash"></div></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
